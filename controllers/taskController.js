@@ -1,91 +1,116 @@
 'use strict';
 
-const { setIntervalAsync, clearIntervalAsync } = require('set-interval-async/dynamic');
-const fs = require('fs');
-const os = require('os');
-const { Task } = require('../models');
-const Response = require('./../helper/response');
-const { messageTxt, errorCode, statusCode } = require('./../constants');
-const interval = parseInt(process.env.TASK_INTERVAL, 10) || 3000;
+const { setIntervalAsync, clearIntervalAsync } = require('set-interval-async/dynamic'); // Module for asynchronous interval handling
+const fs = require('fs'); // File system module for file operations
+const os = require('os'); // Operating system module for system-specific operations
+const { Task } = require('../models'); // Import Task model for database operations
+const Response = require('./../helper/response'); // Custom response handler
+const { messageTxt, errorCode, statusCode } = require('./../constants'); // Constants for messages, error codes, and status codes
+const interval = parseInt(process.env.TASK_INTERVAL, 10) || 3000; // Interval for background task execution, defaults to 3000 milliseconds if not specified in environment variables
 
 // Function to start background task
 async function startTask(magicStringParam) {
+    // Get the directory path for file scanning, default to '/Test' if not specified in environment variables
     const directory = os.homedir() + process.env.SCAN_DIRCTORY || '/Test';
-    const magicString = magicStringParam || process.env.MAGIC_STRING ;
-    let isTaskRunning = false;
+    const magicString = magicStringParam || process.env.MAGIC_STRING ; // Get the magic string for scanning, from environment variables or parameter
+    let isTaskRunning = false; // Flag to check if the task is already running
     let taskId;
 
+    // Check if task is not already running
     if (!isTaskRunning) {
         console.log("start")
-        isTaskRunning = true;
-        taskId = Date.now();
+        isTaskRunning = true; // Set task as running
+        taskId = Date.now(); // Unique ID for the current task
         const startTime = new Date();
-
-        // readdirSync to get updated list of files
-        const filesBefore = fs.readdirSync(directory);
+        
+        // readdirSync to get list of files
+        const filesList = fs.readdirSync(directory);
 
         // counting occurrences of magicString
-        const occurrences = filesBefore.reduce((acc, file) => {
-            const content = fs.readFileSync(`${directory}/${file}`, 'utf8');
-            return acc + (content.match(new RegExp(magicString, 'g')) || []).length;
+        const occurrences = filesList.reduce((acc, file) => {
+            const content = fs.readFileSync(`${directory}/${file}`, 'utf8'); // Read file content
+            return acc + (content.match(new RegExp(magicString, 'g')) || []).length; // Count occurrences of magicString
         }, 0);
 
-        // readdirSync again to get updated list of files
-        const filesAfter = fs.readdirSync(directory);
+        // Calculate endTime and totalRunTime
+        const endTime = new Date();
+        const totalRunTime = endTime - startTime;
 
-        // Find files added and deleted
-        const filesAdded = filesAfter.filter(file => !filesBefore.includes(file));
-        const filesDeleted = filesBefore.filter(file => !filesAfter.includes(file));
+        // Find the last task
+        const lastTask = await Task.findOne({
+            order: [['createdAt', 'DESC']] // Order tasks by createdAt timestamp in descending order
+        });
 
-        // DB operation
-        console.log("startTime "+ startTime)
-        console.log("occurrences "+ occurrences)
-        console.log("filesAdded "+ filesAdded)
-        console.log("filesDeleted "+ filesDeleted)
+        let filesAdded;
+        let filesDeleted;
+        if (lastTask) {
+            // Get the list of files from the last task
+            const lastTaskFilesList = JSON.parse(lastTask.files);
 
-        isTaskRunning = false;
+            // Find files added and deleted
+            filesAdded = lastTaskFilesList.filter(file => !filesList.includes(file)); // Files added
+            filesDeleted = filesList.filter(file => !lastTaskFilesList.includes(file)); // Files deleted
+        }
+
+        // Create a new Task instance with the details
+        const newTask = new Task({
+            start_time: startTime, // Save the task start time
+            end_time: endTime, // Save the task end time
+            total_runtime: totalRunTime, // Save the task total run time
+            files: JSON.stringify(filesList), // Save the list of files as a JSON string
+            files_added: JSON.stringify(filesAdded), // Save filesAdded as a JSON string
+            files_deleted: JSON.stringify(filesDeleted), // Save filesDeleted as a JSON string
+            magic_string_count: occurrences // Save the count of magicString occurrences
+        });
+        // Save the new task to the database
+        await newTask.save();
+        isTaskRunning = false; // Set task as not running
     }
 }
 
 // Background task scheduler
-let taskInterval = setIntervalAsync(startTask, interval);
+let taskInterval = setIntervalAsync(startTask, interval); // Start the background task with the specified interval
 
+// Function to list tasks
 const list = async (req, res) => {
-    const response = new Response();
+    const response = new Response(); // Create a new response object
     try {
-        const tasks = await Task.findAll({});
-        response.data = tasks;
-        response.message = messageTxt.LIST_SUCCESS;
-        res.status(statusCode.RESPONSE_OK).send(response);
+        const tasks = await Task.findAll({}); // Retrieve tasks from the database
+        response.data = tasks; // Set response data
+        response.message = messageTxt.LIST_SUCCESS; // Set success message
+        res.status(statusCode.RESPONSE_OK).send(response); // Send response
     } catch (error) {
         console.log(error)
 
-        response.status = false;
-        response.message = messageTxt.LIST_FAILED;
-        response.errorCode = errorCode.LIST_RETRIEVAL_FAILED;
-        res.status(statusCode.INTERNAL_SERVER_ERROR).send(response);
+        response.status = false; // Set response status to false
+        response.message = messageTxt.LIST_FAILED; // Set failure message
+        response.errorCode = errorCode.LIST_RETRIEVAL_FAILED; // Set error code
+        res.status(statusCode.INTERNAL_SERVER_ERROR).send(response); // Send response with internal server error status
     }
 }
 
+// Function to start the background task with a new magicString
 const start = async (req, res) => {
-    let magicString = req.body.magicString;
+    let magicString = req.body.magicString; // Get magicString from request body
 
-    clearIntervalAsync(taskInterval);
+    clearIntervalAsync(taskInterval); // Clear existing task interval
     taskInterval = setIntervalAsync(async() => {
-        await startTask(magicString)
+        await startTask(magicString) // Start the task with the new magicString
     }, interval);
-    const response = new Response();
-    response.message = messageTxt.TASK_STARTED_SUCCESS;
-    res.status(statusCode.RESPONSE_OK).send(response);
+    const response = new Response(); // Create a new response object
+    response.message = messageTxt.TASK_STARTED_SUCCESS; // Set success message
+    res.status(statusCode.RESPONSE_OK).send(response); // Send response
 }
 
+// Function to stop the background task
 const stop = async (req, res) => {
-    clearIntervalAsync(taskInterval);
-    const response = new Response();
-    response.message = messageTxt.TASK_STOPPED_SUCCESS;
-    res.status(statusCode.RESPONSE_OK).send(response);
+    clearIntervalAsync(taskInterval); // Clear the task interval
+    const response = new Response(); // Create a new response object
+    response.message = messageTxt.TASK_STOPPED_SUCCESS; // Set success message
+    res.status(statusCode.RESPONSE_OK).send(response); // Send response
 }
 
+// Export functions
 module.exports = {
     list,
     start,

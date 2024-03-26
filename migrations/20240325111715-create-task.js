@@ -1,5 +1,4 @@
 'use strict';
-
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
@@ -19,6 +18,9 @@ module.exports = {
       total_runtime: {
         type: Sequelize.INTEGER
       },
+      files: {
+        type: Sequelize.TEXT
+      },
       files_added: {
         type: Sequelize.TEXT
       },
@@ -27,9 +29,6 @@ module.exports = {
       },
       magic_string_count: {
         type: Sequelize.INTEGER
-      },
-      status: {
-        type: Sequelize.STRING
       },
       createdAt: {
         allowNull: false,
