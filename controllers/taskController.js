@@ -6,7 +6,10 @@ const os = require('os'); // Operating system module for system-specific operati
 const { Task } = require('../models'); // Import Task model for database operations
 const Response = require('./../helper/response'); // Custom response handler
 const { messageTxt, errorCode, statusCode } = require('./../constants'); // Constants for messages, error codes, and status codes
-const interval = parseInt(process.env.TASK_INTERVAL, 10) || 3000; // Interval for background task execution, defaults to 3000 milliseconds if not specified in environment variables
+const interval = parseInt(process.env.TASK_INTERVAL, 10) || 30000; // Interval for background task execution, defaults to 3000 milliseconds if not specified in environment variables
+
+// intial files list 
+let initialFilesList = [];
 
 // Function to start background task
 async function startTask(magicStringParam) {
@@ -18,7 +21,6 @@ async function startTask(magicStringParam) {
 
     // Check if task is not already running
     if (!isTaskRunning) {
-        console.log("start")
         isTaskRunning = true; // Set task as running
         taskId = Date.now(); // Unique ID for the current task
         const startTime = new Date();
@@ -36,28 +38,23 @@ async function startTask(magicStringParam) {
         const endTime = new Date();
         const totalRunTime = endTime - startTime;
 
-        // Find the last task
-        const lastTask = await Task.findOne({
-            order: [['createdAt', 'DESC']] // Order tasks by createdAt timestamp in descending order
-        });
-
         let filesAdded;
         let filesDeleted;
-        if (lastTask) {
-            // Get the list of files from the last task
-            const lastTaskFilesList = JSON.parse(lastTask.files);
+        if (initialFilesList.length > 0) {
 
             // Find files added and deleted
-            filesAdded = lastTaskFilesList.filter(file => !filesList.includes(file)); // Files added
-            filesDeleted = filesList.filter(file => !lastTaskFilesList.includes(file)); // Files deleted
+            filesAdded = filesList.filter(file => !initialFilesList.includes(file)); // Files added
+            filesDeleted = initialFilesList.filter(file => !filesList.includes(file)); // Files deleted
         }
+
+        // Update initialFilesList
+        initialFilesList = filesList;
 
         // Create a new Task instance with the details
         const newTask = new Task({
             start_time: startTime, // Save the task start time
             end_time: endTime, // Save the task end time
             total_runtime: totalRunTime, // Save the task total run time
-            files: JSON.stringify(filesList), // Save the list of files as a JSON string
             files_added: JSON.stringify(filesAdded), // Save filesAdded as a JSON string
             files_deleted: JSON.stringify(filesDeleted), // Save filesDeleted as a JSON string
             magic_string_count: occurrences // Save the count of magicString occurrences

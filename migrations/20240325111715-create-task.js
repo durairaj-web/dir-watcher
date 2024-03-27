@@ -18,9 +18,6 @@ module.exports = {
       total_runtime: {
         type: Sequelize.INTEGER
       },
-      files: {
-        type: Sequelize.TEXT
-      },
       files_added: {
         type: Sequelize.TEXT
       },
